@@ -299,26 +299,107 @@ class JS_OT_ProjShad(bpy.types.Operator):
         return {'FINISHED'}
 
 #maxbox
+import bgl
+import gpu
+from gpu_extras.batch import batch_for_shader
+
+class MaxBoxDraw:
+    
+    box_x_size = 3.0
+    box_y_size = 6.0
+    box_z_size = 2.7
+    
+    box_x_center = 0.0
+    box_y_center = 0.0
+    box_z_center = box_z_size / 2. - 0.2
+    
+    box_color = (1.0, 0.0, 0.0, 0.7)
+    
+    handle = None
+    
+    def __init__(self):
+        # create batch
+        (xsz, ysz, zsz) = (self.box_x_size, self.box_y_size, self.box_z_size)
+        (xcn, ycn, zcn) = (self.box_x_center, self.box_y_center, self.box_z_center)
+
+        fronttopleft        = ( xsz / 2. + xcn, -ysz / 2. + ycn,  zsz / 2. + zcn)
+        fronttopright       = (-xsz / 2. + xcn, -ysz / 2. + ycn,  zsz / 2. + zcn)
+        frontbottomleft     = ( xsz / 2. + xcn, -ysz / 2. + ycn, -zsz / 2. + zcn)
+        frontbottomright    = (-xsz / 2. + xcn, -ysz / 2. + ycn, -zsz / 2. + zcn)
+
+        reartopleft         = ( xsz / 2. + xcn,  ysz / 2. + ycn,  zsz / 2. + zcn)
+        reartopright        = (-xsz / 2. + xcn,  ysz / 2. + ycn,  zsz / 2. + zcn)
+        rearbottomleft      = ( xsz / 2. + xcn,  ysz / 2. + ycn, -zsz / 2. + zcn)
+        rearbottomright     = (-xsz / 2. + xcn,  ysz / 2. + ycn, -zsz / 2. + zcn)
+
+        coords = (
+        fronttopleft,   fronttopright,  frontbottomleft,    frontbottomright,
+        reartopleft,    reartopright,   rearbottomleft,     rearbottomright
+        )
+        
+        indices = (
+        (0,1),(0,2),(1,3),(2,3),
+        (4,5),(4,6),(5,7),(6,7),
+        (0,4),(1,5),(2,6),(3,7)
+        )
+
+        self.shader = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
+        self.batch = batch_for_shader(self.shader, 'LINES', {"pos": coords}, indices=indices)
+        
+    def add(self, context):
+        self.handle = bpy.types.SpaceView3D.draw_handler_add(self.draw_callback_3d, (context,), 'WINDOW', 'POST_VIEW')
+        
+    def remove(self, context):
+        bpy.types.SpaceView3D.draw_handler_remove(self.handle, 'WINDOW')
+        
+    def draw_callback_3d(self, context):
+        
+        bgl.glLineWidth(1)
+        bgl.glEnable(bgl.GL_BLEND)
+
+        self.shader.bind()
+        self.shader.uniform_float("color",self.box_color)
+        self.batch.draw(self.shader)
+
+maxbox_draw = MaxBoxDraw()
+
+def show_changed(self,context):
+    if self.box_use:
+        maxbox_draw.add(context)
+    else:
+        maxbox_draw.remove(context)
+    bpy.context.area.tag_redraw() 
+    
+def color_changed(self,context):
+    maxbox_draw.box_color = self.box_color
+    bpy.context.area.tag_redraw()
+
 class JS_OT_MaxBox(bpy.types.Operator):
     """Make MaxBox"""
     bl_idname = "myops.add_maxbox"
     bl_label = "MaxBox"
     bl_options = {'REGISTER', 'UNDO'}
 
-    def execute(self, context):
-        bpy.context.scene.cursor_location = (0.0, 0.0, 0.0)
-        bpy.ops.mesh.primitive_cube_add()
-        ob = bpy.context.object
-        me = ob.data
-        ob.name = 'MaxBox'
-        me.name = 'MaxBox'
-        bpy.ops.transform.resize(value=(1.5, 3, 1.35))
-        bpy.ops.transform.translate(value=(0, 0, 1.15))
-        bpy.ops.object.editmode_toggle()
-        bpy.ops.uv.unwrap(method='ANGLE_BASED', margin=0.00)
-        bpy.ops.object.editmode_toggle()
-        bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+    box_use : bpy.props.BoolProperty(
+        name="Show",
+        description="Show MaxBox",
+        default=False,
+        update=show_changed)
+    box_color : bpy.props.FloatVectorProperty(
+        name="", 
+        subtype='COLOR', 
+        default=maxbox_draw.box_color,
+        min=0.0,max=1.0,
+        size=4,
+        update=color_changed)
+
+    def execute(self,context):
         return {'FINISHED'}
+        
+    def draw(self,context):
+        row = self.layout.row()
+        row.prop(self,"box_use")
+        row.prop(self,"box_color")
 
 #lightFProjProj
 
